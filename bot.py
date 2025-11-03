@@ -30,10 +30,9 @@ if not OPENAI_API_KEY:
 # --- Инициализация клиента OpenAI ---
 CLIENT = OpenAI(api_key=OPENAI_API_KEY)
 
-# --- Настройки моделей ---
-LLM_MODEL = "gpt-5-nano"       # Новая основная текстовая модель
-AUDIO_MODEL = "gpt-audio-mini" # Универсальная аудиомодель (STT + TTS)
-
+# --- Настройки моделей 2025 ---
+LLM_MODEL = "gpt-5-nano"       # Новая ультра-быстрая текстовая модель
+AUDIO_MODEL = "gpt-audio-mini" # Универсальная аудиомодель нового поколения
 
 # --- LLM Integration Functions ---
 def get_llm_response(prompt: str) -> str:
@@ -79,7 +78,21 @@ def get_llm_response(prompt: str) -> str:
 
     except Exception as e:
         logger.error(f"Error getting LLM response from {LLM_MODEL}: {e}")
-        return "Благодарю вас за обращение. Сейчас возникла техническая ошибка. Пожалуйста, попробуйте позже."
+        # Fallback на более старую модель если новая недоступна
+        try:
+            logger.info("Trying fallback to gpt-4o...")
+            response = CLIENT.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "Ты психолог. Отвечай поддерживающе."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=500
+            )
+            return response.choices[0].message.content
+        except Exception as fallback_error:
+            logger.error(f"Fallback also failed: {fallback_error}")
+            return "Благодарю вас за обращение. Сейчас возникла техническая ошибка. Пожалуйста, попробуйте позже."
 
 
 # --- Speech Integration Functions (STT/TTS) ---
@@ -96,18 +109,32 @@ async def transcribe_voice_message(voice_file: File) -> str:
             mp3_path = mp3_file.name
 
         logger.info(f"Converting audio from {ogg_path} to {mp3_path}")
-        subprocess.run([
+        result = subprocess.run([
             "ffmpeg", "-i", ogg_path, "-acodec", "libmp3lame",
-            "-ac", "1", mp3_path, "-y"
-        ], check=True)
+            "-ac", "1", "-ar", "16000", mp3_path, "-y"
+        ], capture_output=True, text=True, timeout=30)
+        
+        if result.returncode != 0:
+            logger.error(f"FFmpeg error: {result.stderr}")
+            return ""
 
         with open(mp3_path, "rb") as audio_file:
-            transcript = CLIENT.audio.transcriptions.create(
-                model=AUDIO_MODEL,
-                file=audio_file,
-                language="ru",
-                response_format="text"
-            )
+            # Пробуем новую модель, если недоступна - fallback на whisper
+            try:
+                transcript = CLIENT.audio.transcriptions.create(
+                    model=AUDIO_MODEL,
+                    file=audio_file,
+                    language="ru",
+                    response_format="text"
+                )
+            except Exception as audio_error:
+                logger.warning(f"New audio model not available, using whisper-1: {audio_error}")
+                transcript = CLIENT.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio_file,
+                    language="ru",
+                    response_format="text"
+                )
 
         logger.info(f"Transcription successful: {transcript[:100]}...")
         return transcript
@@ -130,12 +157,23 @@ async def synthesize_speech(text: str) -> bytes:
         if len(text) > 1000:
             text = text[:1000] + "..."
 
-        response = CLIENT.audio.speech.create(
-            model=AUDIO_MODEL,
-            voice="alloy",
-            input=text,
-            speed=1.0
-        )
+        # Пробуем новую модель, если недоступна - fallback на tts-1
+        try:
+            response = CLIENT.audio.speech.create(
+                model=AUDIO_MODEL,
+                voice="alloy",
+                input=text,
+                speed=1.0
+            )
+        except Exception as tts_error:
+            logger.warning(f"New TTS model not available, using tts-1: {tts_error}")
+            response = CLIENT.audio.speech.create(
+                model="tts-1",
+                voice="alloy",
+                input=text,
+                speed=1.0
+            )
+            
         return response.content
     except Exception as e:
         logger.error(f"Error during speech synthesis: {e}")
@@ -145,16 +183,21 @@ async def synthesize_speech(text: str) -> bytes:
 # --- Telegram Handlers ---
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обрабатывает команду /start."""
-    welcome_text = """
-🧠 *Добро пожаловать в кабинет современной психологической помощи!*
+    welcome_text = f"""
+🧠 *Добро пожаловать в кабинет современной психологической помощи 2025!*
 
-Я - ваш виртуальный психолог, работающий на основе современных технологий OpenAI.
+Я - ваш виртуальный психолог, работающий на основе новейших технологий AI.
+
+*Используемые технологии:*
+🤖 **Текстовая модель:** {LLM_MODEL}
+🎤 **Аудио-модель:** {AUDIO_MODEL}
+⚡ **Сверх-быстрые ответы**
+🔒 **Полная конфиденциальность**
 
 *Что я могу:*
-💬 **Текстовые консультации**
-🎤 **Голосовая поддержка**
-⚡ **Мгновенные ответы**
-🔒 **Полная конфиденциальность**
+💬 **Текстовые консультации** - умные и глубокие ответы
+🎤 **Голосовая поддержка** - распознавание и синтез речи
+🚀 **Мгновенная помощь** - доступен 24/7
 
 Расскажите, что вас беспокоит, и я постараюсь помочь.
 """
@@ -163,18 +206,24 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обрабатывает команду /help."""
-    help_text = """
-🌟 *Как получить максимальную пользу от консультации:*
+    help_text = f"""
+🌟 *Психологическая помощь нового поколения*
 
-📝 Опишите вашу ситуацию подробно.  
-🎤 Говорите естественно, как с живым психологом.  
-💫 Чем конкретнее вопрос, тем точнее ответ.
+*Технологии 2025 года:*
+• {LLM_MODEL} - для глубокого понимания ваших переживаний
+• {AUDIO_MODEL} - для естественного голосового общения
 
-🚨 В кризисной ситуации:
+*Как общаться:*
+📝 Опишите вашу ситуацию подробно  
+🎤 Говорите естественно, как с живым психологом  
+💫 Чем конкретнее вопрос, тем точнее ответ
+
+🚨 *Кризисная помощь (немедленно):*
 • Телефон доверия: `8-800-2000-122`
 • Экстренная помощь: `112`
+• Кризисная помощь: `8-495-989-50-50`
 
-Вы не одиноки — помощь доступна.
+Вы не одиноки — помощь доступна круглосуточно.
 """
     await update.message.reply_text(help_text, parse_mode="Markdown")
 
@@ -182,11 +231,19 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def model_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Показывает информацию о используемых моделях."""
     info_text = f"""
-🤖 *Информация о системе:*
+🤖 *Система психологической помощи 2025*
 
 *Текстовая модель:* `{LLM_MODEL}`
+- Ультра-быстрая обработка
+- Глубокое понимание контекста  
+- Поддержка эмоциональных нюансов
+
 *Аудио-модель:* `{AUDIO_MODEL}`
-*Назначение:* Психологический ассистент с поддержкой голоса
+- Высококачественное распознавание речи
+- Естественный синтез голоса
+- Поддержка русского языка
+
+*Технологии:* OpenAI Generation 5
 """
     await update.message.reply_text(info_text, parse_mode="Markdown")
 
@@ -215,8 +272,12 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 Похоже, вы переживаете очень тяжёлые чувства.  
 Ваша жизнь бесценна, и помощь доступна прямо сейчас.
 
-📞 **Телефон доверия:** `8-800-2000-122`
+*Немедленно обратитесь:*
+📞 **Телефон доверия:** `8-800-2000-122` (круглосуточно)
 🚑 **Экстренная помощь:** `112`
+🏥 **Кризисная помощь:** `8-495-989-50-50`
+
+*Не оставайтесь в одиночестве.* Обращение за помощью - это проявление силы.
 """
         await update.message.reply_text(crisis_response, parse_mode="Markdown")
         return
@@ -228,7 +289,7 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text(llm_response)
     except Exception as e:
         logger.error(f"Error in text handler: {e}")
-        await update.message.reply_text("⚠️ Ошибка при обработке вашего сообщения. Попробуйте позже.")
+        await update.message.reply_text("⚠️ Произошла ошибка при обработке вашего сообщения. Пожалуйста, попробуйте позже.")
 
 
 async def voice_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -243,18 +304,25 @@ async def voice_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
     transcribed_text = await transcribe_voice_message(voice_file)
     if not transcribed_text:
-        await update.message.reply_text("❌ Не удалось распознать голосовое сообщение.")
+        await update.message.reply_text("❌ Не удалось распознать голосовое сообщение. Попробуйте еще раз или напишите текстом.")
         return
 
     logger.info(f"Transcribed text: {transcribed_text}")
 
     if check_crisis_situation(transcribed_text):
-        await update.message.reply_text(
-            "🚨 Пожалуйста, немедленно обратитесь за помощью: 📞 8-800-2000-122",
-            parse_mode="Markdown"
-        )
+        crisis_response = """
+🚨 *Услышал, что вам очень тяжело.*
+
+Пожалуйста, немедленно обратитесь за помощью:
+📞 **8-800-2000-122** - круглосуточная помощь
+🚑 **112** - экстренная служба
+
+Ваша жизнь важна!
+"""
+        await update.message.reply_text(crisis_response, parse_mode="Markdown")
         return
 
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     llm_response = get_llm_response(transcribed_text)
 
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="record_audio")
@@ -262,14 +330,14 @@ async def voice_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
     if not audio_content:
         await update.message.reply_text(
-            f"🎤 *Вы сказали:* {transcribed_text}\n\n💬 *Ответ:* {llm_response}",
+            f"🎤 *Вы сказали:* {transcribed_text}\n\n💬 *Мой ответ:* {llm_response}",
             parse_mode="Markdown"
         )
         return
 
     await update.message.reply_voice(
         voice=io.BytesIO(audio_content),
-        caption=f"💬 Ответ от модели {LLM_MODEL}",
+        caption=f"💬 Ответ от {LLM_MODEL}",
         parse_mode="Markdown"
     )
 
@@ -279,20 +347,18 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     logger.error(f"Exception: {context.error}")
 
 
-# --- Webhook Setup ---
-async def set_webhook(application: Application):
-    """Устанавливает webhook после запуска."""
+# --- Webhook Setup (ИСПРАВЛЕНО для новой версии python-telegram-bot) ---
+async def setup_webhook(application: Application):
+    """Настраивает webhook отдельно."""
     webhook_url = os.environ.get('RENDER_EXTERNAL_URL')
     if webhook_url:
-        webhook_url = f"{webhook_url}/{TELEGRAM_TOKEN}"
+        full_url = f"{webhook_url}/{TELEGRAM_TOKEN}"
         await application.bot.set_webhook(
-            url=webhook_url,
+            url=full_url,
             allowed_updates=["message", "callback_query"]
         )
-        logger.info(f"Webhook set to: {webhook_url}")
-        logger.info(f"Using models: {LLM_MODEL} / {AUDIO_MODEL}")
-    else:
-        logger.warning("RENDER_EXTERNAL_URL not set, webhook not configured")
+        logger.info(f"Webhook configured: {full_url}")
+        logger.info(f"Using advanced 2025 models: {LLM_MODEL} + {AUDIO_MODEL}")
 
 
 # --- Main Application Setup ---
@@ -316,16 +382,22 @@ def main() -> None:
     port = int(os.environ.get('PORT', 8443))
 
     if webhook_url:
-        logger.info(f"Starting bot with webhook on port {port}")
-        application.run_webhook(
-            listen="0.0.0.0",
-            port=port,
-            url_path=TELEGRAM_TOKEN,
-            webhook_url=f"{webhook_url}/{TELEGRAM_TOKEN}",
-            post_init=set_webhook
-        )
+        logger.info(f"🚀 Starting 2025 AI Psychologist Bot with webhook on port {port}")
+        
+        # Настраиваем webhook асинхронно перед запуском
+        async def run_with_webhook():
+            await setup_webhook(application)
+            await application.run_webhook(
+                listen="0.0.0.0",
+                port=port,
+                url_path=TELEGRAM_TOKEN,
+                webhook_url=f"{webhook_url}/{TELEGRAM_TOKEN}"
+            )
+        
+        # Запускаем асинхронно
+        asyncio.run(run_with_webhook())
     else:
-        logger.info("Starting bot in polling mode (development)")
+        logger.info("🔧 Starting bot in polling mode (development)")
         application.run_polling(
             drop_pending_updates=True,
             allowed_updates=["message"]
