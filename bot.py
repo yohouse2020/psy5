@@ -347,20 +347,6 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     logger.error(f"Exception: {context.error}")
 
 
-# --- Webhook Setup (ИСПРАВЛЕНО для новой версии python-telegram-bot) ---
-async def setup_webhook(application: Application):
-    """Настраивает webhook отдельно."""
-    webhook_url = os.environ.get('RENDER_EXTERNAL_URL')
-    if webhook_url:
-        full_url = f"{webhook_url}/{TELEGRAM_TOKEN}"
-        await application.bot.set_webhook(
-            url=full_url,
-            allowed_updates=["message", "callback_query"]
-        )
-        logger.info(f"Webhook configured: {full_url}")
-        logger.info(f"Using advanced 2025 models: {LLM_MODEL} + {AUDIO_MODEL}")
-
-
 # --- Main Application Setup ---
 def main() -> None:
     """Запускает Telegram-бота."""
@@ -379,14 +365,25 @@ def main() -> None:
     application.add_error_handler(error_handler)
 
     webhook_url = os.environ.get('RENDER_EXTERNAL_URL')
-    port = int(os.environ.get('PORT', 8443))
+    port = int(os.environ.get('PORT', 10000))
 
     if webhook_url:
         logger.info(f"🚀 Starting 2025 AI Psychologist Bot with webhook on port {port}")
         
-        # Настраиваем webhook асинхронно перед запуском
-        async def run_with_webhook():
-            await setup_webhook(application)
+        # Устанавливаем webhook синхронно перед запуском
+        async def setup_webhook():
+            full_url = f"{webhook_url}/{TELEGRAM_TOKEN}"
+            await application.bot.set_webhook(
+                url=full_url,
+                allowed_updates=["message", "callback_query"]
+            )
+            logger.info(f"Webhook configured: {full_url}")
+            logger.info(f"Using advanced 2025 models: {LLM_MODEL} + {AUDIO_MODEL}")
+        
+        # Запускаем настройку webhook и затем сам сервер
+        async def run_webhook():
+            await setup_webhook()
+            await application.start()
             await application.run_webhook(
                 listen="0.0.0.0",
                 port=port,
@@ -395,7 +392,14 @@ def main() -> None:
             )
         
         # Запускаем асинхронно
-        asyncio.run(run_with_webhook())
+        try:
+            asyncio.run(run_webhook())
+        except KeyboardInterrupt:
+            logger.info("Bot stopped by user")
+        except Exception as e:
+            logger.error(f"Bot crashed: {e}")
+            raise
+            
     else:
         logger.info("🔧 Starting bot in polling mode (development)")
         application.run_polling(
