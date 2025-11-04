@@ -31,9 +31,9 @@ if not OPENAI_API_KEY:
 CLIENT = OpenAI(api_key=OPENAI_API_KEY)
 
 # --- Исправленные настройки моделей ---
-LLM_MODEL = "gpt-4o"           # Используем существующую модель
-AUDIO_MODEL_STT = "whisper-1"  # Модель для распознавания речи
-AUDIO_MODEL_TTS = "tts-1"      # Модель для синтеза речи
+LLM_MODEL = "gpt-5-nano"           # Используем существующую модель
+AUDIO_MODEL_STT = "gpt-audio-mini"  # Модель для распознавания речи
+AUDIO_MODEL_TTS = "gpt-audio-mini"      # Модель для синтеза речи
 
 # --- LLM Integration Functions ---
 def get_llm_response(prompt: str) -> str:
@@ -84,7 +84,7 @@ def get_llm_response(prompt: str) -> str:
 
 # --- Speech Integration Functions (STT/TTS) ---
 async def transcribe_voice_message(voice_file: File) -> str:
-    """Распознаёт речь с помощью whisper-1."""
+    """Распознаёт речь с помощью gpt-audio-mini."""
     ogg_path = mp3_path = None
     try:
         with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as ogg_file:
@@ -129,7 +129,7 @@ async def transcribe_voice_message(voice_file: File) -> str:
 
 
 async def synthesize_speech(text: str) -> bytes:
-    """Синтезирует речь (TTS) с помощью tts-1."""
+    """Синтезирует речь (TTS) с помощью gpt-audio-mini."""
     try:
         if len(text) > 1000:
             text = text[:1000] + "..."
