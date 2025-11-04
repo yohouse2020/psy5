@@ -352,15 +352,11 @@ def main() -> None:
     if webhook_url:
         logger.info(f"🚀 Starting 2025 AI Psychologist Bot with webhook on port {port}")
         
-        # Правильная инициализация для python-telegram-bot 21.x
-        application.initialize()
-        
-        # Запускаем webhook
+        # Упрощенный запуск без initialize()
         application.run_webhook(
             listen="0.0.0.0",
             port=port,
             webhook_url=f"{webhook_url}/{TELEGRAM_TOKEN}",
-            secret_token='WEBHOOK_SECRET',
             drop_pending_updates=True
         )
             
@@ -370,7 +366,6 @@ def main() -> None:
             drop_pending_updates=True,
             allowed_updates=["message"]
         )
-
 
 if __name__ == '__main__':
     main()
