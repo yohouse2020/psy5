@@ -30,13 +30,14 @@ if not OPENAI_API_KEY:
 # --- Инициализация клиента OpenAI ---
 CLIENT = OpenAI(api_key=OPENAI_API_KEY)
 
-# --- Настройки моделей 2025 ---
-LLM_MODEL = "gpt-5-nano"       # Новая ультра-быстрая текстовая модель
-AUDIO_MODEL = "gpt-audio-mini" # Универсальная аудиомодель нового поколения
+# --- Исправленные настройки моделей ---
+LLM_MODEL = "gpt-4o"           # Используем существующую модель
+AUDIO_MODEL_STT = "whisper-1"  # Модель для распознавания речи
+AUDIO_MODEL_TTS = "tts-1"      # Модель для синтеза речи
 
 # --- LLM Integration Functions ---
 def get_llm_response(prompt: str) -> str:
-    """Получает ответ от модели GPT-5 nano."""
+    """Получает ответ от модели GPT."""
     try:
         system_prompt = """
 Ты - профессиональный психолог с 20-летним опытом работы. 
@@ -78,26 +79,12 @@ def get_llm_response(prompt: str) -> str:
 
     except Exception as e:
         logger.error(f"Error getting LLM response from {LLM_MODEL}: {e}")
-        # Fallback на более старую модель если новая недоступна
-        try:
-            logger.info("Trying fallback to gpt-4o...")
-            response = CLIENT.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": "Ты психолог. Отвечай поддерживающе."},
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=500
-            )
-            return response.choices[0].message.content
-        except Exception as fallback_error:
-            logger.error(f"Fallback also failed: {fallback_error}")
-            return "Благодарю вас за обращение. Сейчас возникла техническая ошибка. Пожалуйста, попробуйте позже."
+        return "Благодарю вас за обращение. Сейчас возникла техническая ошибка. Пожалуйста, попробуйте позже."
 
 
 # --- Speech Integration Functions (STT/TTS) ---
 async def transcribe_voice_message(voice_file: File) -> str:
-    """Распознаёт речь с помощью gpt-audio-mini."""
+    """Распознаёт речь с помощью whisper-1."""
     ogg_path = mp3_path = None
     try:
         with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as ogg_file:
@@ -119,22 +106,12 @@ async def transcribe_voice_message(voice_file: File) -> str:
             return ""
 
         with open(mp3_path, "rb") as audio_file:
-            # Пробуем новую модель, если недоступна - fallback на whisper
-            try:
-                transcript = CLIENT.audio.transcriptions.create(
-                    model=AUDIO_MODEL,
-                    file=audio_file,
-                    language="ru",
-                    response_format="text"
-                )
-            except Exception as audio_error:
-                logger.warning(f"New audio model not available, using whisper-1: {audio_error}")
-                transcript = CLIENT.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=audio_file,
-                    language="ru",
-                    response_format="text"
-                )
+            transcript = CLIENT.audio.transcriptions.create(
+                model=AUDIO_MODEL_STT,
+                file=audio_file,
+                language="ru",
+                response_format="text"
+            )
 
         logger.info(f"Transcription successful: {transcript[:100]}...")
         return transcript
@@ -152,27 +129,17 @@ async def transcribe_voice_message(voice_file: File) -> str:
 
 
 async def synthesize_speech(text: str) -> bytes:
-    """Синтезирует речь (TTS) с помощью gpt-audio-mini."""
+    """Синтезирует речь (TTS) с помощью tts-1."""
     try:
         if len(text) > 1000:
             text = text[:1000] + "..."
 
-        # Пробуем новую модель, если недоступна - fallback на tts-1
-        try:
-            response = CLIENT.audio.speech.create(
-                model=AUDIO_MODEL,
-                voice="alloy",
-                input=text,
-                speed=1.0
-            )
-        except Exception as tts_error:
-            logger.warning(f"New TTS model not available, using tts-1: {tts_error}")
-            response = CLIENT.audio.speech.create(
-                model="tts-1",
-                voice="alloy",
-                input=text,
-                speed=1.0
-            )
+        response = CLIENT.audio.speech.create(
+            model=AUDIO_MODEL_TTS,
+            voice="alloy",
+            input=text,
+            speed=1.0
+        )
             
         return response.content
     except Exception as e:
@@ -184,13 +151,13 @@ async def synthesize_speech(text: str) -> bytes:
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обрабатывает команду /start."""
     welcome_text = f"""
-🧠 *Добро пожаловать в кабинет современной психологической помощи 2025!*
+🧠 *Добро пожаловать в кабинет современной психологической помощи!*
 
 Я - ваш виртуальный психолог, работающий на основе новейших технологий AI.
 
 *Используемые технологии:*
 🤖 **Текстовая модель:** {LLM_MODEL}
-🎤 **Аудио-модель:** {AUDIO_MODEL}
+🎤 **Аудио-модель:** {AUDIO_MODEL_STT} + {AUDIO_MODEL_TTS}
 ⚡ **Сверх-быстрые ответы**
 🔒 **Полная конфиденциальность**
 
@@ -209,9 +176,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     help_text = f"""
 🌟 *Психологическая помощь нового поколения*
 
-*Технологии 2025 года:*
+*Технологии:*
 • {LLM_MODEL} - для глубокого понимания ваших переживаний
-• {AUDIO_MODEL} - для естественного голосового общения
+• {AUDIO_MODEL_STT} - для естественного голосового общения
 
 *Как общаться:*
 📝 Опишите вашу ситуацию подробно  
@@ -231,19 +198,18 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def model_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Показывает информацию о используемых моделях."""
     info_text = f"""
-🤖 *Система психологической помощи 2025*
+🤖 *Система психологической помощи*
 
 *Текстовая модель:* `{LLM_MODEL}`
-- Ультра-быстрая обработка
+- Быстрая обработка
 - Глубокое понимание контекста  
 - Поддержка эмоциональных нюансов
 
-*Аудио-модель:* `{AUDIO_MODEL}`
-- Высококачественное распознавание речи
-- Естественный синтез голоса
-- Поддержка русского языка
+*Аудио-модели:*
+- Распознавание: `{AUDIO_MODEL_STT}`
+- Синтез: `{AUDIO_MODEL_TTS}`
 
-*Технологии:* OpenAI Generation 5
+*Технологии:* OpenAI
 """
     await update.message.reply_text(info_text, parse_mode="Markdown")
 
@@ -368,37 +334,21 @@ def main() -> None:
     port = int(os.environ.get('PORT', 10000))
 
     if webhook_url:
-        logger.info(f"🚀 Starting 2025 AI Psychologist Bot with webhook on port {port}")
+        logger.info(f"🚀 Starting AI Psychologist Bot with webhook on port {port}")
         
-        # Устанавливаем webhook синхронно перед запуском
-        async def setup_webhook():
-            full_url = f"{webhook_url}/{TELEGRAM_TOKEN}"
-            await application.bot.set_webhook(
-                url=full_url,
-                allowed_updates=["message", "callback_query"]
-            )
-            logger.info(f"Webhook configured: {full_url}")
-            logger.info(f"Using advanced 2025 models: {LLM_MODEL} + {AUDIO_MODEL}")
+        # Инициализируем application перед использованием
+        application.initialize()
         
-        # Запускаем настройку webhook и затем сам сервер
-        async def run_webhook():
-            await setup_webhook()
-            await application.start()
-            await application.run_webhook(
-                listen="0.0.0.0",
-                port=port,
-                url_path=TELEGRAM_TOKEN,
-                webhook_url=f"{webhook_url}/{TELEGRAM_TOKEN}"
-            )
-        
-        # Запускаем асинхронно
-        try:
-            asyncio.run(run_webhook())
-        except KeyboardInterrupt:
-            logger.info("Bot stopped by user")
-        except Exception as e:
-            logger.error(f"Bot crashed: {e}")
-            raise
+        # Запускаем webhook
+        application.run_webhook(
+            listen="0.0.0.0",
+            port=port,
+            webhook_url=f"{webhook_url}/{TELEGRAM_TOKEN}",
+            secret_token='WEBHOOK_SECRET',  # Опционально для безопасности
+            cert=None,  # Для HTTPS, если есть SSL сертификат
+            key=None,
+            drop_pending_updates=True
+        )
             
     else:
         logger.info("🔧 Starting bot in polling mode (development)")
