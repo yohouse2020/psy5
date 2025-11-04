@@ -30,14 +30,13 @@ if not OPENAI_API_KEY:
 # --- Инициализация клиента OpenAI ---
 CLIENT = OpenAI(api_key=OPENAI_API_KEY)
 
-# --- Исправленные настройки моделей ---
-LLM_MODEL = "gpt-5-nano"           # Используем существующую модель
-AUDIO_MODEL_STT = "gpt-audio-mini"  # Модель для распознавания речи
-AUDIO_MODEL_TTS = "gpt-audio-mini"      # Модель для синтеза речи
+# --- Настройки моделей 2025 ---
+LLM_MODEL = "gpt-5-nano"       # Новая ультра-быстрая текстовая модель
+AUDIO_MODEL = "gpt-audio-mini" # Универсальная аудиомодель нового поколения
 
 # --- LLM Integration Functions ---
 def get_llm_response(prompt: str) -> str:
-    """Получает ответ от модели GPT."""
+    """Получает ответ от модели GPT-5 nano."""
     try:
         system_prompt = """
 Ты - профессиональный психолог с 20-летним опытом работы. 
@@ -79,7 +78,21 @@ def get_llm_response(prompt: str) -> str:
 
     except Exception as e:
         logger.error(f"Error getting LLM response from {LLM_MODEL}: {e}")
-        return "Благодарю вас за обращение. Сейчас возникла техническая ошибка. Пожалуйста, попробуйте позже."
+        # Fallback на более старую модель если новая недоступна
+        try:
+            logger.info("Trying fallback to gpt-4o...")
+            response = CLIENT.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "Ты психолог. Отвечай поддерживающе."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=500
+            )
+            return response.choices[0].message.content
+        except Exception as fallback_error:
+            logger.error(f"Fallback also failed: {fallback_error}")
+            return "Благодарю вас за обращение. Сейчас возникла техническая ошибка. Пожалуйста, попробуйте позже."
 
 
 # --- Speech Integration Functions (STT/TTS) ---
@@ -106,8 +119,9 @@ async def transcribe_voice_message(voice_file: File) -> str:
             return ""
 
         with open(mp3_path, "rb") as audio_file:
+            # Используем новую модель gpt-audio-mini
             transcript = CLIENT.audio.transcriptions.create(
-                model=AUDIO_MODEL_STT,
+                model=AUDIO_MODEL,
                 file=audio_file,
                 language="ru",
                 response_format="text"
@@ -134,8 +148,9 @@ async def synthesize_speech(text: str) -> bytes:
         if len(text) > 1000:
             text = text[:1000] + "..."
 
+        # Используем новую модель gpt-audio-mini для TTS
         response = CLIENT.audio.speech.create(
-            model=AUDIO_MODEL_TTS,
+            model=AUDIO_MODEL,
             voice="alloy",
             input=text,
             speed=1.0
@@ -151,13 +166,13 @@ async def synthesize_speech(text: str) -> bytes:
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обрабатывает команду /start."""
     welcome_text = f"""
-🧠 *Добро пожаловать в кабинет современной психологической помощи!*
+🧠 *Добро пожаловать в кабинет современной психологической помощи 2025!*
 
 Я - ваш виртуальный психолог, работающий на основе новейших технологий AI.
 
 *Используемые технологии:*
 🤖 **Текстовая модель:** {LLM_MODEL}
-🎤 **Аудио-модель:** {AUDIO_MODEL_STT} + {AUDIO_MODEL_TTS}
+🎤 **Аудио-модель:** {AUDIO_MODEL}
 ⚡ **Сверх-быстрые ответы**
 🔒 **Полная конфиденциальность**
 
@@ -176,13 +191,13 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     help_text = f"""
 🌟 *Психологическая помощь нового поколения*
 
-*Технологии:*
+*Технологии 2025 года:*
 • {LLM_MODEL} - для глубокого понимания ваших переживаний
-• {AUDIO_MODEL_STT} - для естественного голосового общения
+• {AUDIO_MODEL} - для естественного голосового общения
 
 *Как общаться:*
 📝 Опишите вашу ситуацию подробно  
-🎤 Говорите естественно, как с живым психологом  
+🎤 Говорите естественно, как с жичным психологом  
 💫 Чем конкретнее вопрос, тем точнее ответ
 
 🚨 *Кризисная помощь (немедленно):*
@@ -198,18 +213,19 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def model_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Показывает информацию о используемых моделях."""
     info_text = f"""
-🤖 *Система психологической помощи*
+🤖 *Система психологической помощи 2025*
 
 *Текстовая модель:* `{LLM_MODEL}`
-- Быстрая обработка
+- Ультра-быстрая обработка
 - Глубокое понимание контекста  
 - Поддержка эмоциональных нюансов
 
-*Аудио-модели:*
-- Распознавание: `{AUDIO_MODEL_STT}`
-- Синтез: `{AUDIO_MODEL_TTS}`
+*Аудио-модель:* `{AUDIO_MODEL}`
+- Высококачественное распознавание речи
+- Естественный синтез голоса
+- Поддержка русского языка
 
-*Технологии:* OpenAI
+*Технологии:* OpenAI Generation 5
 """
     await update.message.reply_text(info_text, parse_mode="Markdown")
 
@@ -334,9 +350,9 @@ def main() -> None:
     port = int(os.environ.get('PORT', 10000))
 
     if webhook_url:
-        logger.info(f"🚀 Starting AI Psychologist Bot with webhook on port {port}")
+        logger.info(f"🚀 Starting 2025 AI Psychologist Bot with webhook on port {port}")
         
-        # Инициализируем application перед использованием
+        # Правильная инициализация для python-telegram-bot 21.x
         application.initialize()
         
         # Запускаем webhook
@@ -344,9 +360,7 @@ def main() -> None:
             listen="0.0.0.0",
             port=port,
             webhook_url=f"{webhook_url}/{TELEGRAM_TOKEN}",
-            secret_token='WEBHOOK_SECRET',  # Опционально для безопасности
-            cert=None,  # Для HTTPS, если есть SSL сертификат
-            key=None,
+            secret_token='WEBHOOK_SECRET',
             drop_pending_updates=True
         )
             
